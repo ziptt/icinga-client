@@ -23,7 +23,8 @@ alerted_hosts = set()
 def notify(title, message):
     subprocess.run([
         "notify-send",
-        "--urgency=critical",
+        # Uncomment this or make sure your OS saves notification history
+        # "--urgency=critical",
         title,
         message
     ])
