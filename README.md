@@ -49,3 +49,4 @@ ICINGA_URL = "https://icinga.example.com/icingaweb2"
 API_USER = "user"
 API_PASS = "password"
 ```
+You can also uncomment line `"--urgency=critical",` and check if this type of notification is better for you.
