@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import time
 import requests
 import subprocess
@@ -9,8 +8,8 @@ from requests.auth import HTTPBasicAuth
 ICINGA_URL = "https://icinga.example.com/icingaweb2"
 API_USER = "user"
 API_PASS = "password"
-
-CHECK_INTERVAL = 30  # seconds
+CHECK_INTERVAL = 40  # seconds
+CONFIRM_DELAY = 50   # seconds to wait before confirming a problem
 # ==========================================
 
 HEADERS = {
@@ -39,13 +38,11 @@ def get_problem_hosts():
         3 = UNKNOWN
     """
     url = f"{ICINGA_URL}/monitoring/list/hosts"
-
     params = {
         "format": "json",
         # Only fetch DOWN or UNREACHABLE
         "host_state": "1|2"
     }
-
     response = requests.get(
         url,
         headers=HEADERS,
@@ -53,42 +50,50 @@ def get_problem_hosts():
         auth=HTTPBasicAuth(API_USER, API_PASS),
         timeout=10
     )
-
     response.raise_for_status()
     return response.json()
 
+def parse_problem_hosts(data):
+    """ Parse API response into a dict of {host_name: state_text} """
+    problems = {}
+    for host in data:
+        name = host["host_name"]
+        state = host["host_state"]
+        if state == "1":
+            problems[name] = "DOWN"
+        elif state == "2":
+            problems[name] = "UNREACHABLE"
+        # Ignore UNKNOWN or anything unexpected
+    return problems
+
 def main():
     print("Icinga monitor started (alerts only for DOWN / UNREACHABLE hosts)")
-    global alerted_hosts
 
     while True:
         try:
-            data = get_problem_hosts()
-            current_problem_hosts = set()
+            problems = parse_problem_hosts(get_problem_hosts())
+            current_problem_hosts = set(problems.keys())
 
-            for host in data:
-                name = host["host_name"]
-                state = host["host_state"]
+            # Hosts newly seen as problems (not already alerted)
+            newly_detected = current_problem_hosts - alerted_hosts
 
-                if state == "1":
-                    state_text = "DOWN"
-                elif state == "2":
-                    state_text = "UNREACHABLE"
-                else:
-                    # Ignore UNKNOWN or anything unexpected
-                    continue
+            if newly_detected:
+                print(f"Problems detected: {newly_detected}. Waiting {CONFIRM_DELAY}s to confirm...")
+                time.sleep(CONFIRM_DELAY)
 
-                current_problem_hosts.add(name)
+                # Re-check: only alert if the host is still down after the delay
+                confirmed_problems = parse_problem_hosts(get_problem_hosts())
+                confirmed_hosts = set(confirmed_problems.keys())
 
-                # Notify only if this host wasn't already alerted
-                if name not in alerted_hosts:
-                    notify(
-                        "Icinga Alert",
-                        f"{name} is {state_text}"
-                    )
+                for name in newly_detected & confirmed_hosts:
+                    notify("Icinga Alert", f"{name} is {confirmed_problems[name]}")
+                    alerted_hosts.add(name)
 
-            # Remove hosts that recovered
-            alerted_hosts = current_problem_hosts
+                # Use the confirmation check as the authoritative current state
+                current_problem_hosts = confirmed_hosts
+
+            # Remove hosts that have recovered
+            alerted_hosts &= current_problem_hosts
 
         except Exception as e:
             notify("Icinga Monitor Error", str(e))
@@ -97,3 +102,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
