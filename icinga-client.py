@@ -69,6 +69,7 @@ def parse_problem_hosts(data):
 
 def main():
     print("Icinga monitor started (alerts only for DOWN / UNREACHABLE hosts)")
+    global alerted_hosts
 
     while True:
         try:
